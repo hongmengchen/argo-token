@@ -15,8 +15,7 @@ func formModel(server, token string) model {
 }
 
 func TestSaveCmdWritesAfterVerify(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setTestHome(t)
 	srv := fakeArgo(t, "good-token")
 
 	m := formModel(srv.URL, "good-token")
@@ -65,8 +64,7 @@ func TestSaveCmdWritesAfterVerify(t *testing.T) {
 }
 
 func TestSaveCmdRejectedWritesNothing(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setTestHome(t)
 	srv := fakeArgo(t, "good-token")
 
 	m := formModel(srv.URL, "bad-token")
@@ -86,8 +84,7 @@ func TestSaveCmdRejectedWritesNothing(t *testing.T) {
 }
 
 func TestSaveCmdForceWithoutVerify(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setTestHome(t)
 
 	m := formModel("https://argocd.example.com", "offline-token")
 	msg := m.saveCmd(false)()
@@ -104,8 +101,7 @@ func TestSaveCmdForceWithoutVerify(t *testing.T) {
 }
 
 func TestSaveCmdEmptyTokenNoExisting(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t)
 
 	m := formModel("https://argocd.example.com", "")
 	msg := m.saveCmd(true)()
@@ -116,8 +112,7 @@ func TestSaveCmdEmptyTokenNoExisting(t *testing.T) {
 }
 
 func TestSaveCmdReusesExistingToken(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setTestHome(t)
 	tokenPath := filepath.Join(home, ".argocd", "token")
 	if err := saveToken(tokenPath, "kept-token"); err != nil {
 		t.Fatal(err)

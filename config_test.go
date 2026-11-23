@@ -7,6 +7,17 @@ import (
 	"testing"
 )
 
+// setTestHome 把 HOME 和 XDG_CONFIG_HOME 都指到临时目录：
+// Linux 上 os.UserConfigDir 优先看 XDG_CONFIG_HOME，只改 HOME 会把配置写到
+// 真实的家目录（CI 上就是构建用户），测试之间串味。
+func setTestHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	return home
+}
+
 func TestNormalizeServer(t *testing.T) {
 	cases := map[string]string{
 		"argocd.example.com":            "https://argocd.example.com",
@@ -39,8 +50,7 @@ func TestMaskToken(t *testing.T) {
 }
 
 func TestExpandHome(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setTestHome(t)
 	if got := expandHome("~/.argocd/token"); got != filepath.Join(home, ".argocd/token") {
 		t.Errorf("expandHome 展开 ~ 失败: %q", got)
 	}
@@ -50,8 +60,7 @@ func TestExpandHome(t *testing.T) {
 }
 
 func TestSaveLoadConfigAndToken(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t)
 
 	cfg := &Config{
 		Server:    "argocd.example.com/",
@@ -100,8 +109,7 @@ func TestSaveLoadConfigAndToken(t *testing.T) {
 }
 
 func TestLoadConfigMissingUsesDefaults(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t)
 
 	cfg, path, ok, err := loadConfig()
 	if err != nil {
@@ -122,8 +130,7 @@ func TestLoadConfigMissingUsesDefaults(t *testing.T) {
 }
 
 func TestWriteEnv(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setTestHome(t)
 
 	cfg := &Config{
 		Server:    "https://argocd.example.com",
@@ -175,8 +182,7 @@ func TestShellQuote(t *testing.T) {
 }
 
 func TestSaveTokenRejectsEmpty(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setTestHome(t)
 	path := filepath.Join(home, ".argocd", "token")
 	if err := saveToken(path, "  \n"); err == nil {
 		t.Fatal("空 token 应报错")
