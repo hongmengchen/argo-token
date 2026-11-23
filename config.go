@@ -105,14 +105,12 @@ func mustJSON(v any) []byte {
 	return append(data, '\n')
 }
 
-// saveToken 原子写入 token 文件（0600），去掉首尾空白换行。
+// saveToken 原子写入 token 文件（0600）。粘贴常带上的 Bearer 前缀、引号、
+// 折行在这里一并清掉，存进去的就是光秃秃的 token。
 func saveToken(path, token string) error {
-	token = strings.TrimSpace(token)
+	token = normalizeToken(token)
 	if token == "" {
 		return fmt.Errorf("token 是空的")
-	}
-	if strings.ContainsAny(token, "\r\n") {
-		return fmt.Errorf("token 里不能有换行")
 	}
 	return writeFileAtomic(path, []byte(token+"\n"), 0o600)
 }
@@ -122,7 +120,7 @@ func readToken(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	token := strings.TrimSpace(string(data))
+	token := normalizeToken(string(data))
 	if token == "" {
 		return "", fmt.Errorf("%s 是空的", shortenHome(path))
 	}

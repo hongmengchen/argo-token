@@ -43,7 +43,7 @@ argo-token
    ↑↓ 切字段  ·  enter 下一个/保存验证  ·  ctrl+s 跳过验证保存  ·  ctrl+t grpc-web  ·  esc 退出
 ```
 
-- token 输入是掩码，可以直接粘贴；已有 token 时留空表示沿用
+- token 输入是掩码，可以直接粘贴；前面带的 `Bearer `、`ARGOCD_AUTH_TOKEN=`、引号和折行会自动清掉。已有 token 时留空表示沿用
 - 服务器可以只写域名，自动补 `https://`
 - 服务器在 Traefik / nginx 后面时 `--grpc-web` 必须开（默认开），env 里会带上
 - 保存成功会显示登录身份和服务器版本；失败会说明是 token 被拒还是网络不通
@@ -127,7 +127,8 @@ argo-token version
 
 | 现象 | 处理 |
 | --- | --- |
-| `Unauthenticated` / 401 | token 抄错、过期或被撤销；`argo-token` 重填 |
+| `Unauthenticated` / 401 | token 抄错、过期或被撤销；`argo-token` 重填。报错里会带上服务器的原话（签名不对、已撤销…），照着它判断 |
+| 失败提示「没有列应用的权限」 | token 本身有效，但角色没有 `applications, get/list`；换角色或补 RBAC |
 | 连不上 | 地址、网络/代理、证书；先 `argo-token check` |
 | gRPC 相关报错 | 反向代理后面必须 `--grpc-web`；确认 env 里 `ARGOCD_OPTS` |
 | `PermissionDenied` | 只读角色，写操作本来就不允许 |

@@ -191,3 +191,23 @@ func TestSaveTokenRejectsEmpty(t *testing.T) {
 		t.Fatal("被拒绝时不应创建文件")
 	}
 }
+
+// 粘贴带进来的 Bearer 前缀、引号、折行不能原样落盘：TUI 会把折行换成空格，
+// 存进去的 token 里只要多一个空格，argocd 和服务器都不认。
+func TestSaveTokenCleansPastedJunk(t *testing.T) {
+	home := setTestHome(t)
+	path := filepath.Join(home, ".argocd", "token")
+	if err := saveToken(path, "Bearer \"eyJ.aa bb.cc\"\n"); err != nil {
+		t.Fatalf("saveToken: %v", err)
+	}
+	got, err := readToken(path)
+	if err != nil {
+		t.Fatalf("readToken: %v", err)
+	}
+	if got != "eyJ.aabb.cc" {
+		t.Errorf("落盘的 token = %q，杂质没清干净", got)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("token 文件应该是 0600: %v %v", info, err)
+	}
+}

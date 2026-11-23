@@ -20,7 +20,10 @@ description: 给本机 argocd CLI 配置 Argo CD 服务器和只读 token（TUI 
 3. **只读账号别试着写。** 只读角色对 `app sync` / `delete` / `patch` 会返回 `PermissionDenied`，
    这不是配置问题，原样告诉用户即可。
 4. **验证失败不落盘。** token 被 401/403 拒绝时，工具不会覆盖原来能用的 token；网络不通时也不写，
-   除非用户明确要求跳过验证（TUI 里 `ctrl+s`，CLI 里 `--no-verify`）。
+   除非用户明确要求跳过验证（TUI 里 `ctrl+s`，CLI 里 `--no-verify`）。报错里带服务器的原话
+   （`invalid session: signature is invalid`、已撤销、没权限…），按它判断是换 token 还是补 RBAC。
+5. **粘贴的 token 会先清洗。** `Bearer ` 前缀、`ARGOCD_AUTH_TOKEN=`、外层引号、折行空格都会去掉；
+   Argo CD 只认正好三段的 JWT，带杂质会报「userinfo 说未登录」。
 
 ## 1. 给用户配置（首选）
 
@@ -93,7 +96,8 @@ argocd() {
 
 | 现象 | 原因 / 处理 |
 | --- | --- |
-| `Unauthenticated` / `401` | token 抄错、被撤销或过期；`argo-token` 重填 |
+| `Unauthenticated` / `401` | token 抄错、被撤销或过期；`argo-token` 重填。报错里有服务器原话，照着判断 |
+| `没有列应用的权限`（403） | token 有效但角色缺 `applications, get/list`；补 RBAC 或换角色 |
 | `连不上 https://…` | 地址不对、本机网络/代理、证书问题；先 `argo-token check` |
 | `--grpc-web` 相关报错 | 服务器在 Traefik/nginx 后面，必须开 grpc-web；`ctrl+t` 或 `-no-grpc-web` 反向确认 |
 | `PermissionDenied` | 只读角色，写操作本来就不允许；不是 token 问题 |

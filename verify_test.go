@@ -52,12 +52,82 @@ func TestVerifyRejectsToken(t *testing.T) {
 
 func TestVerifyNotLoggedIn(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"loggedIn":false,"user":""}`))
+		switch r.URL.Path {
+		case "/api/v1/session/userinfo":
+			// Argo CD 对不认的 token 也回 200 + loggedIn:false
+			w.Write([]byte(`{"loggedIn":false,"user":""}`))
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"invalid session: signature is invalid","code":16}`))
+		}
 	}))
 	t.Cleanup(srv.Close)
 	_, err := verify(context.Background(), srv.URL, "x")
 	if !errors.Is(err, ErrAuth) {
 		t.Errorf("未登录应算 ErrAuth: %v", err)
+	}
+	// 拒绝原因要能从服务器带回来，别只说「未登录」
+	if !strings.Contains(err.Error(), "signature is invalid") {
+		t.Errorf("错误里应带服务器的说法: %v", err)
+	}
+}
+
+// 有的 token 能调接口但 userinfo 不给身份：applications 通了就算验证通过
+func TestVerifyFallsBackWhenUserinfoHasNoUser(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/session/userinfo":
+			w.Write([]byte(`{"loggedIn":false,"user":"","iss":"argocd"}`))
+		case "/api/v1/applications":
+			w.Write([]byte(`{"items":[]}`))
+		default:
+			w.Write([]byte(`{"Version":"v3.4.10"}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	id, err := verify(context.Background(), srv.URL, "proj-token")
+	if err != nil {
+		t.Fatalf("token 能用就不该拒绝: %v", err)
+	}
+	if id.User != "" || id.Issuer != "argocd" || id.ServerVersion != "v3.4.10" {
+		t.Errorf("identity 不对: %+v", id)
+	}
+}
+
+func TestVerifyReportsPermissionDenied(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/session/userinfo" {
+			w.Write([]byte(`{"loggedIn":false,"user":""}`))
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error":"permission denied","code":7}`))
+	}))
+	t.Cleanup(srv.Close)
+	_, err := verify(context.Background(), srv.URL, "x")
+	if !errors.Is(err, ErrAuth) || !strings.Contains(err.Error(), "没有列应用的权限") {
+		t.Errorf("403 应说明是权限问题: %v", err)
+	}
+}
+
+// 粘贴带的 Bearer 前缀、引号、折行都要清掉——Argo CD 只认正好三段的 JWT
+func TestNormalizeToken(t *testing.T) {
+	cases := map[string]string{
+		"eyJ.a.b":                   "eyJ.a.b",
+		"  eyJ.a.b\n":               "eyJ.a.b",
+		"Bearer eyJ.a.b":            "eyJ.a.b",
+		"bearer=eyJ.a.b":            "eyJ.a.b",
+		`"eyJ.a.b"`:                 "eyJ.a.b",
+		"'eyJ.a.b'":                 "eyJ.a.b",
+		"eyJ.a.b\n":                 "eyJ.a.b",
+		"ARGOCD_AUTH_TOKEN=eyJ.a.b": "eyJ.a.b",
+		"eyJ.aa\nbb.cc":             "eyJ.aabb.cc",
+		"Bearer \"eyJ.a.b\"":        "eyJ.a.b",
+	}
+	for in, want := range cases {
+		if got := normalizeToken(in); got != want {
+			t.Errorf("normalizeToken(%q) = %q，想要 %q", in, got, want)
+		}
 	}
 }
 
