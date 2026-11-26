@@ -77,6 +77,7 @@ func loadConfig() (cfg *Config, path string, ok bool, err error) {
 		return nil, path, false, fmt.Errorf("解析 %s 失败: %w", shortenHome(path), err)
 	}
 	normalizeConfig(cfg)
+	syncEnvFile(cfg)
 	return cfg, path, true, nil
 }
 
@@ -134,8 +135,17 @@ func writeEnv(c *Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	head := "# 由 argo-token 生成（" + time.Now().Format("2006-01-02 15:04") + "），下次保存会覆盖，别手改\n"
+	if err := writeFileAtomic(path, []byte(head+envBody(c)), 0o600); err != nil {
+		return path, err
+	}
+	return path, nil
+}
+
+// envBody 是真正给 shell source 的那几行。单独拎出来，好拿它和已有的 env
+// 文件比内容——上面那行时间戳每次写都不一样，不能拿来判断有没有变化。
+func envBody(c *Config) string {
 	var b strings.Builder
-	b.WriteString("# 由 argo-token 生成（" + time.Now().Format("2006-01-02 15:04") + "），下次保存会覆盖，别手改\n")
 	// argocd CLI 的 ARGOCD_SERVER 只要主机名/端口，带 https:// 会拼成 https://https//…
 	b.WriteString("export ARGOCD_SERVER=" + shellQuote(serverHost(c.Server)) + "\n")
 	var opts []string
@@ -147,10 +157,36 @@ func writeEnv(c *Config) (string, error) {
 	}
 	b.WriteString("export ARGOCD_OPTS=" + shellQuote(strings.Join(opts, " ")) + "\n")
 	b.WriteString("export ARGOCD_TOKEN_FILE=" + shellQuote(c.TokenFile) + "\n")
-	if err := writeFileAtomic(path, []byte(b.String()), 0o600); err != nil {
-		return path, err
+	return b.String()
+}
+
+// syncEnvFile 让 ~/.argocd/env 跟着配置走：配置文件可能刚从别的机器同步过来
+// （里面还是那边的反斜杠路径），env 也可能根本没生成过。内容对得上就不动，
+// 对不上就重写；写失败只当没发生，不影响命令本身。
+func syncEnvFile(c *Config) {
+	if c == nil || c.Server == "" || c.TokenFile == "" {
+		return
 	}
-	return path, nil
+	path, err := envPath()
+	if err != nil {
+		return
+	}
+	if old, err := os.ReadFile(path); err == nil && envRest(string(old)) == envBody(c) {
+		return
+	}
+	_, _ = writeEnv(c)
+}
+
+// envRest 去掉 env 文件里的注释行，剩下的就是要比对的内容。
+func envRest(s string) string {
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(s, "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		b.WriteString(line)
+	}
+	return b.String()
 }
 
 // serverHost 把配置里的 URL 变成 argocd CLI 认的主机名（可能带端口）。
@@ -204,15 +240,24 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	return os.Chmod(path, mode)
 }
 
-// expandHome 把 ~ / ~/x 展开成绝对路径。
+// expandHome 把 ~、~/x、~\x 展开成绝对路径。
+// 反斜杠也认：配置会跟着 hmck 多端同步在 Windows 和 macOS/Linux 之间来回，
+// 在 Windows 上写下的 ~\.argocd\token 到这里必须还能落到同一个文件。
 func expandHome(p string) string {
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		if home, err := homeDir(); err == nil {
-			if p == "~" {
-				return home
-			}
-			return filepath.Join(home, p[2:])
-		}
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	home, err := homeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	switch {
+	case p == "~":
+		return home
+	case strings.HasPrefix(p, "~/"), strings.HasPrefix(p, `~\`):
+		rest := strings.TrimLeft(p[2:], `/\`)
+		return filepath.Join(home, filepath.FromSlash(strings.ReplaceAll(rest, `\`, "/")))
 	}
 	return p
 }

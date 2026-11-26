@@ -80,6 +80,8 @@ argo-token env               # 打印 ~/.zshrc 片段（不含 token）
 argocd() {
   [ -r "$HOME/.argocd/env" ] && source "$HOME/.argocd/env"
   local tok="${ARGOCD_TOKEN_FILE:-$HOME/.argocd/token}"
+  # 别的机器同步来的旧配置可能是 Windows 反斜杠路径（~\.argocd\token）
+  [ -r "$tok" ] || tok="$HOME/.argocd/token"
   if [ -r "$tok" ]; then
     ARGOCD_AUTH_TOKEN="$(<"$tok")" command argocd "$@"
   else
@@ -91,6 +93,8 @@ argocd() {
 ```
 
 每天改配置不用重开 shell：函数每次调用都会重新 source env 文件。
+env 文件不参与多端同步，是由配置生成的：每次读配置都会核对它，对不上（比如刚从另一台
+机器同步下来、里面还是那边的路径）就按本机配置重写。
 
 ## 5. 常见问题
 

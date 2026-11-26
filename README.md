@@ -56,6 +56,8 @@ argo-token
 argocd() {
   [ -r "$HOME/.argocd/env" ] && source "$HOME/.argocd/env"
   local tok="${ARGOCD_TOKEN_FILE:-$HOME/.argocd/token}"
+  # 从别的机器同步来的旧配置可能是 Windows 反斜杠路径（~\.argocd\token），读不到就退回默认位置
+  [ -r "$tok" ] || tok="$HOME/.argocd/token"
   if [ -r "$tok" ]; then
     ARGOCD_AUTH_TOKEN="$(<"$tok")" command argocd "$@"
   else
@@ -68,6 +70,8 @@ argocd() {
 
 `~/.argocd/env` 由工具生成，只有地址、`--grpc-web`、token 路径，没有 token 本身。
 函数每次调用都会重新 source 它，所以在 TUI 里改完配置不用重开 shell。
+它不参与多端同步：配置可能从另一台机器（比如 Windows）同步过来，`argo-token` 每次读配置都会
+按本机情况核对 env，对不上就重写，所以拉完配置直接就能用。
 
 `ARGOCD_SERVER` 只写主机名（`argocd` CLI 不认 `https://` 前缀，会拼成 `https://https//…`）；
 服务器用 `http://` 时自动加 `--plaintext`。

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var version = "0.1.1"
+var version = "0.1.2"
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -387,6 +387,8 @@ func runEnv(args []string) int {
 argocd() {
   [ -r "%s" ] && source "%s"
   local tok="${ARGOCD_TOKEN_FILE:-$HOME/.argocd/token}"
+  # 同步过来的旧配置可能还是 Windows 反斜杠路径（~\.argocd\token），本机读不到就退回默认位置
+  [ -r "$tok" ] || tok="$HOME/.argocd/token"
   if [ -r "$tok" ]; then
     ARGOCD_AUTH_TOKEN="$(<"$tok")" command argocd "$@"
   else

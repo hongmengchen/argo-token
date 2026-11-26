@@ -51,11 +51,20 @@ func TestMaskToken(t *testing.T) {
 
 func TestExpandHome(t *testing.T) {
 	home := setTestHome(t)
-	if got := expandHome("~/.argocd/token"); got != filepath.Join(home, ".argocd/token") {
-		t.Errorf("expandHome 展开 ~ 失败: %q", got)
+	want := filepath.Join(home, ".argocd", "token")
+	cases := map[string]string{
+		"~/.argocd/token":    want, // 手写的正斜杠
+		`~\.argocd\token`:    want, // Windows 上写进配置、跟着同步过来的
+		"/abs/path":          "/abs/path",
+		"~":                  home,
+		"~/":                 home,
+		"~/.argocd/./token":  want,
+		"  ~/.argocd/token ": want, // 粘贴常带空白
 	}
-	if got := expandHome("/abs/path"); got != "/abs/path" {
-		t.Errorf("绝对路径不应改动: %q", got)
+	for in, expected := range cases {
+		if got := expandHome(in); got != expected {
+			t.Errorf("expandHome(%q) = %q, want %q", in, got, expected)
+		}
 	}
 }
 
@@ -169,6 +178,56 @@ func TestWriteEnv(t *testing.T) {
 	data, _ = os.ReadFile(path)
 	if !strings.Contains(string(data), `export ARGOCD_OPTS=''`) {
 		t.Errorf("关闭 grpc-web 后应输出空 opts:\n%s", data)
+	}
+}
+
+// 配置从另一台机器同步过来时，本机可能根本没有 env 文件，或者里面还是那边
+// 的路径。下次 loadConfig 应该把它按本机配置重写出来。
+func TestLoadConfigRepairsEnvFile(t *testing.T) {
+	home := setTestHome(t)
+	cfgPath, err := configPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	synced := `{"server":"argocd.example.com","token_file":"~\\.argocd\\token","grpc_web":true}`
+	if err := os.WriteFile(cfgPath, []byte(synced), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, ok, err := loadConfig()
+	if err != nil || !ok {
+		t.Fatalf("loadConfig: ok=%v err=%v", ok, err)
+	}
+	want := filepath.Join(home, ".argocd", "token")
+	if cfg.TokenFile != want {
+		t.Fatalf("token_file 应展开成 %q，得到 %q", want, cfg.TokenFile)
+	}
+
+	envP, err := envPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(envP)
+	if err != nil {
+		t.Fatalf("env 没被补出来: %v", err)
+	}
+	if !strings.Contains(string(data), "export ARGOCD_TOKEN_FILE='"+want+"'") {
+		t.Errorf("env 里的 token 路径不对:\n%s", data)
+	}
+	if strings.Contains(string(data), `\`) {
+		t.Errorf("env 里不该再有反斜杠路径:\n%s", data)
+	}
+
+	// 已经对得上时不该反复重写（时间戳不参与比较）。
+	before, _ := os.Stat(envP)
+	if _, _, _, err := loadConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.Stat(envP); !after.ModTime().Equal(before.ModTime()) {
+		t.Error("内容没变时不该重写 env")
 	}
 }
 
